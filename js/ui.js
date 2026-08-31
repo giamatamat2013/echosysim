@@ -6,10 +6,45 @@ function UI(sim, world, canvas) {
   this._bindTools();
   this._bindCanvas();
   this._bindButtons();
+  this._bindRegions();
   this.chart = document.getElementById('chart');
   this.cctx = this.chart.getContext('2d');
-  this.refreshOutputs();
+  this._loadRegionUI();
 }
+
+// The climate settings currently shown/edited in the panel: whichever
+// region is selected in the region list (index 0 = default, unpainted areas).
+UI.prototype._selRegion = function () { return this.sim.world.regions[this.sim.selectedRegion]; };
+
+// "ברירת מחדל" (region 0) always exists and covers every unpainted tile;
+// "+ אזור חדש" creates a fresh one, which you then paint onto the map with
+// the region tool. Picking a region here only changes what the sliders
+// edit — painting happens separately via the canvas.
+UI.prototype._bindRegions = function () {
+  document.getElementById('addRegionBtn').addEventListener('click', () => {
+    this.sim.selectedRegion = this.world.addRegion();
+    this._renderRegionList();
+    this._loadRegionUI();
+    document.querySelector('.tool[data-tool="region"]').click(); // jump straight into painting it
+  });
+  this._renderRegionList();
+};
+
+UI.prototype._renderRegionList = function () {
+  const box = document.getElementById('regionList');
+  box.innerHTML = '';
+  this.world.regions.forEach((_, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'tool' + (idx === this.sim.selectedRegion ? ' active' : '');
+    btn.textContent = idx === 0 ? 'ברירת מחדל' : `אזור ${idx + 1}`;
+    btn.addEventListener('click', () => {
+      this.sim.selectedRegion = idx;
+      this._renderRegionList();
+      this._loadRegionUI();
+    });
+    box.appendChild(btn);
+  });
+};
 
 UI.prototype._bindParams = function () {
   const climateIds = ['temperature', 'seaLevel', 'foodRegen', 'mutation'];
@@ -19,10 +54,11 @@ UI.prototype._bindParams = function () {
       // Dragging a slider makes it authoritative: coupled sliders move to
       // match it, it never gets silently pulled back to match them.
       this.sim.userSetClimate(id, parseFloat(el.value));
-      // userSetClimate may change a *sibling* Param directly in JS (e.g.
+      // userSetClimate may change a *sibling* value directly in JS (e.g.
       // seaLevel -> temperature); push that onto its slider's visual
       // position too, or the handle stays stuck while the label updates.
-      for (const k of climateIds) if (k !== id) document.getElementById(k).value = Params[k];
+      const region = this._selRegion();
+      for (const k of climateIds) if (k !== id) document.getElementById(k).value = region[k];
       this.refreshOutputs();
     });
   }
@@ -30,26 +66,43 @@ UI.prototype._bindParams = function () {
     const el = document.getElementById(id);
     el.addEventListener('input', () => { Params[id] = parseFloat(el.value); this.refreshOutputs(); });
   }
-  document.getElementById('autoseed').addEventListener('change', e => { Params.autoseed = e.target.checked; });
-  document.getElementById('dynamic').addEventListener('change', e => { Params.dynamicClimate = e.target.checked; });
-  document.getElementById('seasons').addEventListener('change', e => {
-    Params.seasons = e.target.checked;
-    if (!Params.seasons) Params.temperature = this.sim.baseTemp; // release back to set-point
+  document.getElementById('dynamic').addEventListener('change', e => {
+    this._selRegion().dynamicClimate = e.target.checked;
   });
+  document.getElementById('seasons').addEventListener('change', e => {
+    const region = this._selRegion();
+    region.seasons = e.target.checked;
+    if (!region.seasons) region.temperature = region.baseTemp; // release back to set-point
+  });
+};
+
+// Load the selected region's climate into every slider/checkbox, unconditionally.
+UI.prototype._loadRegionUI = function () {
+  const region = this._selRegion();
+  document.getElementById('temperature').value = region.temperature;
+  document.getElementById('seaLevel').value = region.seaLevel;
+  document.getElementById('foodRegen').value = region.foodRegen;
+  document.getElementById('mutation').value = region.mutation;
+  document.getElementById('dynamic').checked = region.dynamicClimate;
+  document.getElementById('seasons').checked = region.seasons;
+  this.refreshOutputs();
 };
 
 // Push auto-drifting parameters back onto their sliders so the UI stays live.
 UI.prototype.syncClimateSliders = function () {
-  if (Params.dynamicClimate) {
-    document.getElementById('seaLevel').value = Params.seaLevel;
-    document.getElementById('foodRegen').value = Params.foodRegen;
-    document.getElementById('mutation').value = Params.mutation;
+  const region = this._selRegion();
+  if (region.dynamicClimate) {
+    document.getElementById('seaLevel').value = region.seaLevel;
+    document.getElementById('foodRegen').value = region.foodRegen;
+    document.getElementById('mutation').value = region.mutation;
   }
-  if (Params.seasons) document.getElementById('temperature').value = Params.temperature;
-  if (Params.dynamicClimate || Params.seasons) this.refreshOutputs();
+  if (region.seasons) document.getElementById('temperature').value = region.temperature;
+  this.refreshOutputs();
 };
 
 UI.prototype.refreshOutputs = function () {
+  const region = this._selRegion();
+  const climateIds = ['temperature', 'seaLevel', 'foodRegen', 'mutation'];
   const fmt = {
     temperature: v => (v < .28 ? '❄ ' : v > .72 ? '🔥 ' : '🌤 ') + Math.round(v * 100) + '%',
     seaLevel: v => Math.round(v * 100) + '%',
@@ -60,14 +113,20 @@ UI.prototype.refreshOutputs = function () {
   };
   document.querySelectorAll('[data-out]').forEach(s => {
     const k = s.getAttribute('data-out');
-    if (fmt[k]) s.textContent = fmt[k](Params[k]);
+    if (!fmt[k]) return;
+    s.textContent = fmt[k](climateIds.includes(k) ? region[k] : Params[k]);
   });
+  const label = document.getElementById('regionLabel');
+  if (label) label.textContent = `אזור ${this.sim.selectedRegion + 1}/${this.sim.world.regions.length}`;
 };
 
 UI.prototype._bindTools = function () {
-  document.querySelectorAll('.tool').forEach(btn => {
+  // Scoped to [data-tool] so the "+ אזור חדש" button and the dynamically
+  // built region-list buttons (which reuse .tool for styling only) don't
+  // get wired up as terrain tools.
+  document.querySelectorAll('.tool[data-tool]').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tool[data-tool]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       this.tool = btn.getAttribute('data-tool');
       this.canvas.style.cursor = this.tool === 'none' ? 'default' : 'crosshair';
@@ -89,6 +148,10 @@ UI.prototype._bindCanvas = function () {
     const p = this._toWorld(e);
     if (this.tool === 'none') return;
     if (this.tool === 'spawn') { this.sim.spawn(p.x, p.y, Genome.random(), 0); return; }
+    if (this.tool === 'region') {
+      this.world.paintRegion(p.x, p.y, this.sim.selectedRegion, Params.brush);
+      return;
+    }
     this.world.paint(p.x, p.y, this.tool, Params.brush);
   };
   this.canvas.addEventListener('mousedown', e => { down = true; apply(e); });
@@ -107,13 +170,15 @@ UI.prototype._bindButtons = function () {
     e.target.textContent = Params.paused ? '▶ המשך' : '⏸ השהה';
   });
   document.getElementById('reseedBtn').addEventListener('click', () => {
-    this.world.generate();
+    this.world.generate(); // also drops painted region shapes, keeps the default climate
     this.sim.creatures.length = 0;
     this.sim.births = this.sim.deaths = this.sim.kills = this.sim.matings = this.sim.maxGen = 0;
     this.sim.history.length = 0;
     this.sim.species.length = 0;
     this.sim.nextSpecies = 1;
-    this.sim.pin = {};
+    this.sim.selectedRegion = 0;
+    this._renderRegionList();
+    this._loadRegionUI();
     this.sim.spawnRandom(2);
   });
   document.getElementById('burstBtn').addEventListener('click', () => this.sim.spawnRandom(25));
@@ -159,9 +224,9 @@ UI.prototype._drawChart = function () {
     });
     ctx.stroke();
   }
-  // climate reference line for temperature
+  // climate reference line for the selected region's temperature
   ctx.strokeStyle = 'rgba(255,138,92,.35)'; ctx.setLineDash([4, 4]);
-  const ty = h - Params.temperature * h;
+  const ty = h - this._selRegion().temperature * h;
   ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(w, ty); ctx.stroke(); ctx.setLineDash([]);
 };
 

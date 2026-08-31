@@ -12,6 +12,7 @@ function Creature(x, y, genome, generation) {
   this.id = Creature.nextId++;
   this._decode();
   this.energy = this.maxEnergy * 0.55;
+  this.envTemp = 0.5; // local region temperature, refreshed every update()
   this._initLegs();
 }
 Creature.nextId = 1;
@@ -70,8 +71,9 @@ Creature.prototype.update = function (dt, world, sim) {
   // Climate fit: anything living outside its thermal tolerance dies, fast if
   // the mismatch is severe. Deep water buffers the body from air extremes
   // (real oceans have thermal inertia), so submerging is a valid escape.
+  this.envTemp = world.regionAtPixel(this.x, this.y).temperature;
   const buffer = depth * 0.6;
-  const effectiveTemp = Util.lerp(Params.temperature, 0.5, buffer);
+  const effectiveTemp = Util.lerp(this.envTemp, 0.5, buffer);
   const tdiff = Math.abs(effectiveTemp - this.optTemp);
   const excess = Math.max(0, tdiff - this.tempTol);
   this.exposure = excess;
@@ -301,7 +303,7 @@ Creature.prototype.draw = function (ctx) {
 
   // Climate-exposure distress: red shimmer for heatstroke, cyan frost for cold.
   if (this.exposure > 0.01) {
-    const tooHot = Params.temperature > this.optTemp;
+    const tooHot = this.envTemp > this.optTemp;
     ctx.strokeStyle = tooHot ? 'rgba(255,90,60,.8)' : 'rgba(160,225,255,.85)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();

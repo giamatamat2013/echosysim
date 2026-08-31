@@ -18,6 +18,8 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 .group{border-top:1px solid var(--line);padding:12px 0}
 .group h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;
   color:var(--dim);margin:0 0 10px}
+.region-badge{float:left;color:var(--accent);text-transform:none;letter-spacing:0;
+  font-variant-numeric:tabular-nums}
 label{display:block;font-size:12.5px;color:var(--ink);margin:0 0 12px}
 label span[data-out]{color:var(--accent);float:left;font-variant-numeric:tabular-nums}
 label.check{display:flex;gap:8px;align-items:center;cursor:pointer}

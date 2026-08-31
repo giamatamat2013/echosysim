@@ -38,7 +38,7 @@
     for (let y = 0; y < world.rows; y++) for (let x = 0; x < world.cols; x++) {
       const i = world.idx(x, y), f = world.food[i];
       if (f < 0.06) continue;
-      const water = world.elev[i] < Params.seaLevel;
+      const water = world.elev[i] < world.regionAt(x, y).seaLevel;
       ctx.fillStyle = water ? `rgba(120,230,190,${0.25 + f * 0.5})`
                             : `rgba(150,230,90,${0.3 + f * 0.6})`;
       const s = 2 + f * TILE * 0.4;
@@ -48,12 +48,29 @@
     }
   }
 
+  // Tint painted climate-region tiles so their hand-drawn shape is visible;
+  // the region currently selected for editing shows brighter than the rest.
+  function drawRegions() {
+    if (world.regions.length <= 1) return; // nothing painted yet
+    ctx.save();
+    for (let y = 0; y < world.rows; y++) for (let x = 0; x < world.cols; x++) {
+      const id = world.regionId[world.idx(x, y)];
+      if (id === 0) continue;
+      const hue = (id * 67) % 360;
+      const alpha = id === sim.selectedRegion ? 0.32 : 0.14;
+      ctx.fillStyle = `hsla(${hue},80%,60%,${alpha})`;
+      ctx.fillRect(x * TILE, y * TILE, TILE + 1, TILE + 1);
+    }
+    ctx.restore();
+  }
+
   let acc = 0, lastSample = 0;
   function frame(t) {
     // terrain gets rebuilt every frame cheaply (fillRects); climate edits show live
     drawTerrain();
     ctx.drawImage(buf, 0, 0);
     drawFood();
+    drawRegions();
 
     if (!Params.paused) {
       for (let s = 0; s < Params.simSpeed; s++) sim.step(1);

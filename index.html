@@ -13,7 +13,10 @@
     <p class="tag">אתה לא שולט ביצורים — אתה מעצב את העולם.</p>
 
     <section class="group">
-      <h2>סביבה</h2>
+      <h2>סביבה <span id="regionLabel" class="region-badge"></span></h2>
+      <p class="tag">בחר אזור לעריכה, ואם תרצה — צייר את צורתו על המפה עם כלי "צביעת אזור". אזורים שלא נצבעו משתמשים בברירת המחדל.</p>
+      <div class="tools" id="regionList"></div>
+      <button id="addRegionBtn" class="tool" style="width:100%;margin-bottom:12px">+ אזור חדש</button>
       <label>טמפרטורה <span data-out="temperature"></span>
         <input type="range" id="temperature" min="0" max="1" step="0.01" value="0.5" />
       </label>
@@ -35,7 +38,6 @@
       <label>מהירות סימולציה <span data-out="simSpeed"></span>
         <input type="range" id="simSpeed" min="0" max="5" step="1" value="1" />
       </label>
-      <label class="check"><input type="checkbox" id="autoseed" checked /> זריעה אוטומטית כשהחיים גוועים</label>
     </section>
 
     <section class="group">
@@ -47,6 +49,7 @@
         <button class="tool" data-tool="food">🌿 מזון</button>
         <button class="tool" data-tool="rock">🪨 מכשול</button>
         <button class="tool" data-tool="spawn">🥚 זריעת יצור</button>
+        <button class="tool" data-tool="region">🖌 צביעת אזור</button>
       </div>
       <label>גודל מברשת <span data-out="brush"></span>
         <input type="range" id="brush" min="1" max="8" step="1" value="3" />

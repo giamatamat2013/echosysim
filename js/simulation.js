@@ -14,68 +14,68 @@ function Simulation(world) {
   this.species = [];      // {id, rep(genome), hue}
   this.nextSpecies = 1;
   this.liveSpecies = 0;
-  this.baseTemp = Params.temperature; // seasonal set-point
-  this.climateClock = 0;
-  this._prevTemp = Params.temperature;
-  this._prevSea = Params.seaLevel;
-  this.volatility = 0; // smoothed measure of how fast the climate is shifting
-  this.pin = {};        // paramName -> sim-clock tick until which auto-drift is suppressed
+  this.selectedRegion = 0; // which world.regions[] climate the panel edits
 }
 
 const PIN_TICKS = 3000; // ~ how long a manually-touched leaf slider resists auto-drift
 
-// Called by the UI whenever the player drags a climate slider by hand. The
-// dragged value is authoritative: coupled sliders move to match IT, never
-// the reverse. temperature <-> seaLevel have a clean physical inverse, so
-// dragging either one snaps the other into self-consistency immediately.
-// foodRegen/mutation are pure effects with no clean inverse, so a manual
-// edit is simply protected from auto-drift for a while instead.
+// Called by the UI whenever the player drags a climate slider by hand, for
+// the currently selected region. The dragged value is authoritative: coupled
+// sliders move to match IT, never the reverse. temperature <-> seaLevel have
+// a clean physical inverse, so dragging either one snaps the other into
+// self-consistency immediately. foodRegen/mutation are pure effects with no
+// clean inverse, so a manual edit is simply protected from auto-drift a while.
 Simulation.prototype.userSetClimate = function (id, value) {
-  Params[id] = value;
+  const region = this.world.regions[this.selectedRegion];
+  region[id] = value;
   if (id === 'temperature') {
-    this.baseTemp = value;
+    region.baseTemp = value;
   } else if (id === 'seaLevel') {
     const T = Util.clamp(0.5 + (0.46 - value) / 0.6, 0, 1);
-    Params.temperature = T;
-    this.baseTemp = T;
+    region.temperature = T;
+    region.baseTemp = T;
   } else {
-    this.pin[id] = this.climateClock + PIN_TICKS;
+    region.pin[id] = region.climateClock + PIN_TICKS;
   }
 };
 
-// Environmental feedback: every fitting metric drifts naturally, coupled to
-// the others, instead of staying at a fixed value.
+// Environmental feedback: every region's climate drifts naturally on its
+// own, coupled internally, instead of staying at a fixed value.
 Simulation.prototype.updateClimate = function (dt) {
-  this.climateClock += dt;
-  if (Params.seasons) {
-    // slow seasonal swing around the player's set-point
-    Params.temperature = Util.clamp(this.baseTemp + Math.sin(this.climateClock * 0.0004) * 0.13, 0, 1);
-  }
-  if (!Params.dynamicClimate) { this._prevTemp = Params.temperature; this._prevSea = Params.seaLevel; return; }
+  for (const region of this.world.regions) this._updateRegionClimate(region, dt);
+};
 
-  const T = Params.temperature;
+Simulation.prototype._updateRegionClimate = function (region, dt) {
+  region.climateClock += dt;
+  if (region.seasons) {
+    // slow seasonal swing around the player's set-point
+    region.temperature = Util.clamp(region.baseTemp + Math.sin(region.climateClock * 0.0004) * 0.13, 0, 1);
+  }
+  if (!region.dynamicClimate) { region.prevTemp = region.temperature; region.prevSea = region.seaLevel; return; }
+
+  const T = region.temperature;
 
   // 1) Heat evaporates the sea; cold lets it rise (toward a temp-driven target).
   //    (Self-consistent after a manual seaLevel edit, so no pin needed here.)
   const seaTarget = Util.clamp(0.46 - (T - 0.5) * 0.6, 0.05, 0.72);
-  Params.seaLevel += (seaTarget - Params.seaLevel) * 0.006 * dt;
+  region.seaLevel += (seaTarget - region.seaLevel) * 0.006 * dt;
 
   // 2) Productivity: richest in a temperate, moist world; barren at extremes.
-  if (this.climateClock > (this.pin.foodRegen || 0)) {
+  if (region.climateClock > (region.pin.foodRegen || 0)) {
     const warmth = 1 - Math.abs(T - 0.5) * 1.4;          // bell curve, peak temperate
-    const moisture = 0.4 + Params.seaLevel * 0.9;        // more sea -> more rain
+    const moisture = 0.4 + region.seaLevel * 0.9;        // more sea -> more rain
     const foodTarget = Util.clamp(warmth * moisture * 1.1, 0.05, 1.5);
-    Params.foodRegen += (foodTarget - Params.foodRegen) * 0.005 * dt;
+    region.foodRegen += (foodTarget - region.foodRegen) * 0.005 * dt;
   }
 
   // 3) Climate volatility drives mutation (stress-induced mutagenesis):
   //    rapid change accelerates adaptation, long stability calms the genome.
-  const flux = Math.abs(T - this._prevTemp) + Math.abs(Params.seaLevel - this._prevSea);
-  this._prevTemp = T; this._prevSea = Params.seaLevel;
-  this.volatility = this.volatility * 0.996 + flux;
-  if (this.climateClock > (this.pin.mutation || 0)) {
-    const mutTarget = Util.clamp(0.05 + this.volatility * 0.7, 0.03, 0.3);
-    Params.mutation += (mutTarget - Params.mutation) * 0.08 * dt;
+  const flux = Math.abs(T - region.prevTemp) + Math.abs(region.seaLevel - region.prevSea);
+  region.prevTemp = T; region.prevSea = region.seaLevel;
+  region.volatility = region.volatility * 0.996 + flux;
+  if (region.climateClock > (region.pin.mutation || 0)) {
+    const mutTarget = Util.clamp(0.05 + region.volatility * 0.7, 0.03, 0.3);
+    region.mutation += (mutTarget - region.mutation) * 0.08 * dt;
   }
 };
 
@@ -112,7 +112,8 @@ Simulation.prototype.spawnRandom = function (count) {
 };
 
 Simulation.prototype.spawnChild = function (parent) {
-  const child = Genome.mutate(parent.genome, Params.mutation);
+  const mutation = this.world.regionAtPixel(parent.x, parent.y).mutation;
+  const child = Genome.mutate(parent.genome, mutation);
   const a = Util.rand(0, Math.PI * 2), r = parent.radius * 2;
   const x = Util.clamp(parent.x + Math.cos(a) * r, 1, this.world.cols * this.world.tile - 1);
   const y = Util.clamp(parent.y + Math.sin(a) * r, 1, this.world.rows * this.world.tile - 1);
@@ -126,7 +127,8 @@ Simulation.prototype.spawnChild = function (parent) {
 
 // Sexual reproduction: recombine two parents' genomes, then mutate.
 Simulation.prototype.spawnSexual = function (a, b) {
-  const g = Genome.mutate(Genome.crossover(a.genome, b.genome), Params.mutation);
+  const mutation = this.world.regionAtPixel(a.x, a.y).mutation;
+  const g = Genome.mutate(Genome.crossover(a.genome, b.genome), mutation);
   const ang = Util.rand(0, Math.PI * 2), r = a.radius * 2;
   const x = Util.clamp(a.x + Math.cos(ang) * r, 1, this.world.cols * this.world.tile - 1);
   const y = Util.clamp(a.y + Math.sin(ang) * r, 1, this.world.rows * this.world.tile - 1);
@@ -150,9 +152,6 @@ Simulation.prototype.step = function (dt) {
     else list[w++] = list[i];
   }
   list.length = w;
-
-  // auto-seed so the world rarely goes fully silent
-  if (Params.autoseed && list.length < 8) this.spawnRandom(6);
 
   this.ticks += dt;
   if (this.ticks % 12 < dt) this._sample();
